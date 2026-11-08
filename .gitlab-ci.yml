@@ -1,0 +1,151 @@
+include:
+  - project: "wistronit/citemplate"
+    file: ".gitlab-ci.common.yml"
+
+stages:
+  - secret_scan
+  - test
+  - sast
+  - source_sbom
+  - dockerfile_scan
+  - build_image
+  - pre_dast
+  - deploy
+  - dast
+  - post_dast
+  - image_signature_push
+  - image_sbom
+
+default:
+  tags:
+    - k8s-runners
+
+secret_scan:
+  stage: secret_scan
+  needs: []
+  interruptible: true
+  extends: .gitleaks_scan
+  variables:
+    WISTRON_CI_PARAMETERS: "auto"
+
+test:
+  stage: test
+  needs: []
+  interruptible: true
+  image: harbor.wistron.com/base_image/node:lts-slim
+  variables:
+    DATABASE_URL: postgres://ci@localhost:5432/ci
+    ENTRA_CLIENT_ID: ci
+    ENTRA_TENANT_ID: ci
+    ENTRA_CLIENT_SECRET: ci
+    SESSION_SECRET: ci-session-secret-at-least-32-characters
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+  before_script:
+    - npm config set proxy http://whqproxys.wistron.com:8080
+    - npm config set https-proxy http://whqproxys.wistron.com:8080
+    - npm config set registry https://registry.npmjs.org/
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npx vp test run --exclude "tests/integration/server/**"
+
+sca:
+  stage: sast
+  needs: []
+  interruptible: true
+  extends: .lifecycle_scan
+  allow_failure: true
+  variables:
+    WISTRON_CI_PARAMETERS: "-i ${CI_PROJECT_NAME} ."
+  before_script:
+    - rm -f -r ./node_modules
+
+sonar_scan:
+  stage: sast
+  needs: []
+  interruptible: true
+  extends: .sonarqube_scan
+  variables:
+    WISTRON_CI_PARAMETERS: "-Dsonar.host.url=${SONAR_URL} -Dsonar.login=${SONAR_TOKEN} -Dsonar.projectName=${SONAR_PROJECT_NAME} -Dsonar.projectKey=${SONAR_PROJECT_NAME} -Dsonar.language=javascript -Dsonar.sources=src -Dsonar.exclusions=src/service-worker.ts,src/serviceWorkerRegistration.ts -Dsonar.cpd.exclusions=${SONAR_DUPLICATION_EXCLUSIONS} -Dsonar.typescript.tsconfigPath=tsconfig.json"
+
+source_sbom:
+  stage: source_sbom
+  needs: []
+  interruptible: true
+  extends: .syft_source_cyclonedx
+
+image_sbom:
+  stage: image_sbom
+  needs: [build_image]
+  extends: .syft_image_cyclonedx
+  before_script:
+    - export VERSION=$(grep '"version"' package.json | awk -F'"' '{print $4}')
+    - export WISTRON_CI_PARAMETERS="${HARBOR_URL}/${HARBOR_PROJECT}/${CI_PROJECT_NAME}:${VERSION}"
+    - docker login -u ${HARBOR_USER} -p ${HARBOR_PASSWORD} ${HARBOR_URL}
+
+dockerfile_scan:
+  stage: dockerfile_scan
+  needs: []
+  interruptible: true
+  extends: .trivy_dockerfile_scan
+  variables:
+    WISTRON_CI_PARAMETERS: "./Dockerfile"
+
+build_image:
+  stage: build_image
+  # Gate the Harbor push on the checks; sonar_scan/source_sbom stay off this path (deploy still waits for them).
+  needs: [secret_scan, { job: test, artifacts: false }, sca, dockerfile_scan]
+  interruptible: true
+  image: harbor.wistron.com/base_image/docker:28.3
+  script:
+    - export VERSION=$(grep '"version"' package.json | awk -F'"' '{print $4}')
+    - docker login -u ${HARBOR_USER} -p ${HARBOR_PASSWORD} ${HARBOR_URL}
+    - docker build -t ${HARBOR_URL}/${HARBOR_PROJECT}/${CI_PROJECT_NAME}:${VERSION} --rm=true .
+    - docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${CI_PROJECT_NAME}:${VERSION}
+
+deploy:
+  stage: deploy
+  needs: [build_image, pre_clean_test_workload, sonar_scan, source_sbom]
+  image: harbor.wistron.com/base_image/rancher-deploy-tool:latest
+  cache: {}
+  retry: 2
+  script:
+    - export VERSION=$(grep '"version"' package.json | awk -F'"' '{print $4}')
+    - deploy -n ${SERVICE_NAME} -i ${HARBOR_URL}/${HARBOR_PROJECT}/${CI_PROJECT_NAME}:${VERSION} -m ${EXPOSE_PORT}
+
+dast:
+  stage: dast
+  needs: [deploy]
+  extends: .owasp_zap_scan
+  variables:
+    WISTRON_CI_PARAMETERS: "http://${SERVICE_NAME}.${SCAN_URL}"
+  before_script:
+    - rm -f -r "${PWD}/wrk"
+
+pre_clean_test_workload:
+  stage: pre_dast
+  needs: []
+  image: harbor.wistron.com/base_image/rancher-deploy-tool:latest
+  cache: {}
+  script:
+    - release ${SERVICE_NAME}
+
+post_clean_test_workload:
+  stage: post_dast
+  needs: [dast]
+  extends: pre_clean_test_workload
+
+image_signature:
+  stage: image_signature_push
+  needs: [build_image]
+  extends: .cosign_image_signing
+  variables:
+    cosignKey_name: cosignKey
+  before_script:
+    - export VERSION=$(grep '"version"' package.json | awk -F'"' '{print $4}')
+    - export WISTRON_CI_PARAMETERS="${HARBOR_URL}/${HARBOR_PROJECT}/${CI_PROJECT_NAME}:${VERSION}"
+    - docker login -u ${HARBOR_USER} -p ${HARBOR_PASSWORD} ${HARBOR_URL}

@@ -1,0 +1,67 @@
+{
+  "editor.defaultFormatter": "oxc.oxc-vscode",
+  "[javascript]": { "editor.defaultFormatter": "oxc.oxc-vscode" },
+  "[javascriptreact]": { "editor.defaultFormatter": "oxc.oxc-vscode" },
+  "[typescript]": { "editor.defaultFormatter": "oxc.oxc-vscode" },
+  "[typescriptreact]": { "editor.defaultFormatter": "oxc.oxc-vscode" },
+  "oxc.disableNestedConfig": true,
+  "oxc.fmt.disableNestedConfig": true,
+  "oxc.fmt.configPath": "./vite.config.ts",
+  "npm.scriptRunner": "vp",
+  "editor.formatOnSave": true,
+  "editor.formatOnPaste": true,
+  "editor.formatOnSaveMode": "file",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.oxc": "always"
+  },
+  "files.eol": "\n",
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.exclude": {
+    "**/.claude": true,
+    "**/.output": true,
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/.tanstack": true
+  },
+  "files.readonlyInclude": {
+    "**/routeTree.gen.ts": true,
+    "**/package-lock.json": true,
+    "**/.github/commit-instructions.md": true
+  },
+  "files.watcherExclude": {
+    "**/.claude": true,
+    "**/.output": true,
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/.tanstack": true,
+    "**/package-lock.json": true,
+    "**/routeTree.gen.ts": true
+  },
+  "search.exclude": {
+    "**/.claude": true,
+    "**/.output": true,
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/.tanstack": true,
+    "**/package-lock.json": true,
+    "**/routeTree.gen.ts": true
+  },
+  "git.enableSmartCommit": true,
+  "git.autofetch": true,
+  "git.confirmSync": false,
+  "diffEditor.hideUnchangedRegions.enabled": true,
+  "js/ts.updateImportsOnFileMove.enabled": "always",
+  "chat.agentSkillsLocations": {
+    "./node_modules/wcz-layout/skills": true
+  },
+  "chat.tools.terminal.autoApprove": {
+    "/.*/": true
+  },
+  "chat.tools.edits.autoApprove": {
+    "**/*": true
+  },
+  "chat.tools.urls.autoApprove": {
+    "**/*": true
+  }
+}

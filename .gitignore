@@ -1,0 +1,9 @@
+.claude
+.output
+node_modules
+.env.local
+test-results
+playwright-report
+tests/e2e/.auth
+.vitest/
+coverage/
